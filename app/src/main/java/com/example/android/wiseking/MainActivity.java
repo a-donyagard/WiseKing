@@ -3,6 +3,7 @@ package com.example.android.wiseking;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.media.MediaPlayer;
 import android.os.Bundle;
@@ -13,6 +14,7 @@ import android.view.animation.Animation;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.example.android.wiseking.util.IabHelper;
 import com.example.android.wiseking.util.IabResult;
@@ -44,11 +46,23 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private int remainingTime = 34000;
     private MediaPlayer mediaPlayer;
     private PointsManager pointsManager;
+    private SharedPreferences coinsSharedPref;
+
+    private IabHelper iabHelper;
+    private static final String RSA_KEY = "MIHNMA0GCSqGSIb3DQEBAQUAA4G7ADCBtwKBrwC9gD8M7qUTrwRc1YrjFtNz8gcjxFJvJ6QH+oji3/rr1sfy+k0gYtXzmyQN9YEGmO8mA2xXwowPOt8lGT24D/e1Km2GaJvDFQIo/yInnHyQuihhmXU8twRmVkUPktlj0u7gnN0l+c6wH6sxOGQ+r6VL2vvtg0QrQkzYY5Mtt6Auoopfsaz7i41Ow9A5poLnUOU2LkejkfMrlygFeIO2XDGFVJAsU23bu4ZuWjmaoFkCAwEAAQ==\n";
+    private static final int PURCHASE_REQUEST_CODE = 1001;
+
+    private TextView coinsCountGetStartedTextView;
+    private TextView coinsCountInGameTextView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        iabHelper = new IabHelper(this, RSA_KEY);
+        iabHelper.startSetup(this);
+        coinsSharedPref = getSharedPreferences("coins_shp", MODE_PRIVATE);
 
         mediaPlayer = MediaPlayer.create(this, R.raw.background_music);
         questionManager = new QuestionManager(this);
@@ -57,6 +71,63 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     private void setupViews() {
+        Button buttonPurchaseCoins = (Button) findViewById(R.id.button_main_purchaseCoins);
+        buttonPurchaseCoins.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                PurchaseCoinDialog dialog = new PurchaseCoinDialog();
+                dialog.setOnProductSelected(new PurchaseCoinDialog.OnProductSelected() {
+                    @Override
+                    public void onProductSelected(int productId) {
+                        switch (productId) {
+                            case PurchaseCoinDialog.TEN_COINS:
+                                iabHelper.launchPurchaseFlow(MainActivity.this, "ten_coin", PURCHASE_REQUEST_CODE,
+                                        MainActivity.this);
+                                break;
+                            case PurchaseCoinDialog.FIFTY_COINS:
+                                iabHelper.launchPurchaseFlow(MainActivity.this, "fifty_coin", PURCHASE_REQUEST_CODE,
+                                        MainActivity.this);
+                                break;
+                            case PurchaseCoinDialog.HUNDRED_COINS:
+                                iabHelper.launchPurchaseFlow(MainActivity.this, "hundred_coin", PURCHASE_REQUEST_CODE,
+                                        MainActivity.this);
+                                break;
+                        }
+                    }
+                });
+                dialog.show(getSupportFragmentManager(), null);
+            }
+        });
+        Button useCoinsButton = (Button) findViewById(R.id.button_main_useCoin);
+        useCoinsButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                if (getCoinsCount() >= 10) {
+                    saveCoins(getCoinsCount() - 10);
+                    switch (currentQuestion.getAnswer()) {
+                        case 0:
+                            option0Button.performClick();
+                            break;
+                        case 1:
+                            option1Button.performClick();
+                            break;
+                        case 2:
+                            option3Button.performClick();
+                            break;
+                        case 3:
+                            option3Button.performClick();
+                            break;
+                    }
+                } else {
+                    Toast.makeText(MainActivity.this, "سکه های شما کافی نیست", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+
+        coinsCountGetStartedTextView = (TextView) findViewById(R.id.tv_main_getStartCoinsCount);
+        coinsCountInGameTextView = (TextView) findViewById(R.id.tv_main_inGameCoinsCount);
+        updateCoinsUi();
+
         getStartDialog = (FrameLayout) findViewById(R.id.frameLayout_main_getStartDialog);
         questionTextView = (TextView) findViewById(R.id.textView_main_question);
         pointTextView = (TextView) findViewById(R.id.textView_main_point);
@@ -269,12 +340,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     @Override
     public void onIabSetupFinished(IabResult result) {
-
+        iabHelper.queryInventoryAsync(this);
     }
 
     @Override
     public void onIabPurchaseFinished(IabResult result, Purchase info) {
-
+        if (result.isSuccess() && info != null) {
+            iabHelper.consumeAsync(info, this);
+        }
     }
 
     @Override
@@ -284,6 +357,40 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     @Override
     public void onConsumeFinished(Purchase purchase, IabResult result) {
+        if (result.isSuccess() && purchase != null) {
+            if (purchase.getSku().equalsIgnoreCase("ten_coin")) {
+                saveCoins(getCoinsCount() + 10);
+            } else if (purchase.getSku().equalsIgnoreCase("fifty_coin")) {
+                saveCoins(getCoinsCount() + 50);
+            } else if (purchase.getSku().equalsIgnoreCase("hundred_coin")) {
+                saveCoins(getCoinsCount() + 100);
+            }
+            updateCoinsUi();
+        }
+    }
 
+    public void updateCoinsUi() {
+        String coinsCount = String.valueOf(getCoinsCount());
+        coinsCountGetStartedTextView.setText("تعداد سکه ها: " + coinsCount);
+        coinsCountInGameTextView.setText(coinsCount);
+    }
+
+    public void saveCoins(int coins) {
+        SharedPreferences.Editor editor = coinsSharedPref.edit();
+        editor.putInt("coins", coins);
+        editor.apply();
+    }
+
+    public int getCoinsCount() {
+        return coinsSharedPref.getInt("coins", 50);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == PURCHASE_REQUEST_CODE) {
+            iabHelper.handleActivityResult(requestCode, resultCode, data);
+        } else {
+            super.onActivityResult(requestCode, resultCode, data);
+        }
     }
 }
